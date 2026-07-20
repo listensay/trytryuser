@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#2DD4BF"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- squircle 底 -->
+  <rect x="62" y="62" width="900" height="900" rx="205" fill="url(#bg)"/>
+  <rect x="62" y="62" width="900" height="450" rx="205" fill="url(#shine)"/>
+
+  <!-- 名册卡片 -->
+  <rect x="222" y="212" width="580" height="600" rx="64" fill="#FFFFFF"/>
+
+  <!-- 第一行 -->
+  <circle cx="330" cy="342" r="44" fill="#5EEAD4"/>
+  <circle cx="330" cy="328" r="16" fill="#0F766E"/>
+  <path d="M302 362 C302 344 314 336 330 336 C346 336 358 344 358 362 L358 366 Q358 372 352 372 L308 372 Q302 372 302 366 Z" fill="#0F766E"/>
+  <rect x="412" y="318" width="300" height="48" rx="24" fill="#CBD5E1"/>
+
+  <!-- 第二行 -->
+  <circle cx="330" cy="512" r="44" fill="#5EEAD4"/>
+  <circle cx="330" cy="498" r="16" fill="#0F766E"/>
+  <path d="M302 532 C302 514 314 506 330 506 C346 506 358 514 358 532 L358 536 Q358 542 352 542 L308 542 Q302 542 302 536 Z" fill="#0F766E"/>
+  <rect x="412" y="488" width="300" height="48" rx="24" fill="#CBD5E1"/>
+
+  <!-- 第三行（审计通过）-->
+  <circle cx="330" cy="682" r="44" fill="#5EEAD4"/>
+  <circle cx="330" cy="668" r="16" fill="#0F766E"/>
+  <path d="M302 702 C302 684 314 676 330 676 C346 676 358 684 358 702 L358 706 Q358 712 352 712 L308 712 Q302 712 302 706 Z" fill="#0F766E"/>
+  <rect x="412" y="658" width="180" height="48" rx="24" fill="#CBD5E1"/>
+
+  <!-- 大对勾徽章，压在卡片右下角 -->
+  <circle cx="742" cy="738" r="150" fill="#16A34A" stroke="#FFFFFF" stroke-width="30"/>
+  <path d="M672 742 L724 796 L818 678" fill="none" stroke="#FFFFFF" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

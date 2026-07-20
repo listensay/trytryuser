@@ -1,0 +1,153 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+  color: rgba(0, 0, 0, 0.88);
+  background: #ffffff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-width: 980px; min-height: 100vh; margin: 0; }
+body { background: #ffffff; }
+
+/* 避免 Tauri 窗口拖拽区域拦截表单的点击和输入事件。 */
+input,
+textarea,
+select,
+button,
+.ant-input,
+.ant-input-number,
+.ant-select,
+.ant-switch,
+.ant-collapse-header,
+.ant-table,
+a {
+  -webkit-app-region: no-drag;
+}
+
+input,
+textarea,
+.ant-input,
+.ant-input-number-input {
+  cursor: text !important;
+}
+
+.app-shell { min-height: 100vh; background: #ffffff; }
+
+.topbar {
+  height: 72px;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #ffffff;
+  -webkit-app-region: drag;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  background: #1677ff;
+}
+
+.brand-copy .ant-typography { margin: 0; }
+.brand-copy span.ant-typography { display: block; }
+.run-state { margin-left: auto; -webkit-app-region: no-drag; }
+
+.site-list-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 32px;
+}
+
+.site-list-heading { margin-bottom: 24px; }
+.site-list-heading .ant-typography { margin: 0; }
+.site-list-heading span.ant-typography { display: block; margin-top: 6px; }
+.site-row { cursor: pointer; }
+.site-row:hover td { background: #fafafa !important; }
+
+.workspace {
+  display: grid;
+  grid-template-columns: 400px minmax(0, 1fr);
+  min-height: calc(100vh - 72px);
+}
+
+.settings-panel {
+  max-height: calc(100vh - 72px);
+  padding: 24px;
+  overflow-y: auto;
+  border-right: 1px solid #f0f0f0;
+  background: #ffffff;
+}
+
+.panel-title { margin-bottom: 20px; }
+.settings-panel .ant-input-number { width: 100%; }
+.code-input { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace !important; }
+.settings-panel textarea.code-input { resize: vertical; }
+.form-divider { height: 1px; margin: 4px 0 20px; background: #f0f0f0; }
+.advanced-collapse { margin-top: 4px; }
+.advanced-content { padding-top: 4px; }
+
+.switch-row {
+  min-height: 54px;
+  padding: 0 2px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.switch-row > div > .ant-typography { display: block; }
+.login-settings { margin-top: 16px; }
+.login-settings .ant-row:last-child .ant-form-item { margin-bottom: 12px; }
+
+.action-row {
+  position: sticky;
+  bottom: -28px;
+  z-index: 3;
+  margin: 20px -24px -28px;
+  padding: 16px 24px 24px;
+  background: linear-gradient(0deg, #ffffff 78%, rgba(255, 255, 255, 0));
+}
+
+.action-row .ant-btn { height: 40px; }
+
+.results-panel {
+  max-height: calc(100vh - 72px);
+  padding: 24px 28px 40px;
+  overflow: auto;
+  background: #f5f5f5;
+}
+
+.stats-grid .ant-card { height: 96px; }
+.progress-card { margin: 16px 0; }
+.progress-card .ant-progress { margin: 8px 0 2px; }
+.progress-card > .ant-card-body > .ant-typography { display: block; }
+.error-alert { margin-bottom: 16px; }
+
+.card-subtitle { display: block; margin-top: 2px; font-weight: 400; }
+.result-card .ant-select { width: 140px; }
+.result-card .ant-card-body { padding: 0; }
+.result-card .ant-pagination { margin-right: 16px; }
+.history-card { margin-top: 16px; }
+.history-card .ant-card-body { padding: 0; }
+.history-card .ant-pagination { margin-right: 16px; }
+
+.log-collapse { margin-top: 16px; background: #ffffff; }
+.log-collapse .ant-collapse-content-box { max-height: 260px; overflow-y: auto; }
+.log-row { width: 100%; min-width: 0; }
+.log-row > .ant-typography:last-child { min-width: 0; }
+.log-row .ant-tag { min-width: 56px; margin: 0; text-align: center; }
+
+@media (max-width: 1100px) {
+  .workspace { grid-template-columns: 370px minmax(0, 1fr); }
+  .settings-panel { padding-right: 18px; padding-left: 18px; }
+  .action-row { margin-right: -18px; margin-left: -18px; padding-right: 18px; padding-left: 18px; }
+  .results-panel { padding-right: 20px; padding-left: 20px; }
+}
