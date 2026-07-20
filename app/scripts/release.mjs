@@ -121,4 +121,4 @@ run(`git push origin ${tag}`);
 
 console.log(`\n✅ 完成！tag ${tag} 已推送。`);
 console.log('   GitHub Actions 会自动打包 Windows / macOS / Linux 安装包并发布 Release：');
-console.log('   https://github.com/listensay/getUserVip/actions');
+console.log('   https://github.com/listensay/trytryuser/actions');
