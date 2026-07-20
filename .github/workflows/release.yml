@@ -58,11 +58,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tagName: v__VERSION__
           releaseName: 'trytryuser v__VERSION__'
-          releaseBody: '请在下方 Assets 中下载对应平台的安装包。'
+          releaseBody: '请在下方 Assets 中下载对应平台的安装包。应用支持自动更新。'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

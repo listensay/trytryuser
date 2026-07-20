@@ -32,6 +32,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
+import { checkForUpdates } from "./updater";
 
 const { Text, Title, Link } = Typography;
 
@@ -193,6 +194,21 @@ function AuditApp() {
       void unlisten.then((dispose) => dispose());
     };
   }, []);
+
+  // 启动后静默检查更新
+  useEffect(() => {
+    void checkForUpdates(message, modal, true);
+  }, [message, modal]);
+
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      await checkForUpdates(message, modal, false);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     const unlisten = listen<{ field: "usernameSelector" | "groupSelector"; selector: string }>(
@@ -596,6 +612,14 @@ function AuditApp() {
           status={running ? "processing" : "default"}
           text={running ? "扫描中" : "就绪"}
         />
+        <Button
+          size="small"
+          loading={checkingUpdate}
+          onClick={handleCheckUpdate}
+          style={{ marginLeft: 12 }}
+        >
+          检查更新
+        </Button>
       </header>
 
       {!selectedSite ? (
