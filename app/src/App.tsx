@@ -764,6 +764,9 @@ function AuditApp() {
               label={
                 <Space>
                   <span>用户组 CSS Selector</span>
+                  <Text type="secondary" style={{ fontWeight: "normal", fontSize: 12 }}>
+                    （可选，留空则只获取用户名）
+                  </Text>
                   <Button type="link" size="small" onClick={() => requestSelectorPicker("groupSelector")}>
                     从页面选取
                   </Button>
@@ -785,7 +788,7 @@ function AuditApp() {
                   update("groupSelector", event.target.value)
                 }
                 autoSize={{ minRows: 2, maxRows: 5 }}
-                placeholder="输入用户组元素的 CSS Selector"
+                placeholder="留空则不获取用户组，只抓取用户名"
               />
             </Form.Item>
             <Row gutter={12}>

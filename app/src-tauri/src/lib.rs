@@ -837,7 +837,7 @@ async fn scan_member(
     base: Url,
     config: Arc<ScanConfig>,
     username_selector: Arc<Selector>,
-    group_selector: Arc<Selector>,
+    group_selector: Option<Arc<Selector>>,
     id: u64,
 ) -> MemberResult {
     let url = match author_url(&base, &config.author_path, id) {
@@ -889,16 +889,20 @@ async fn scan_member(
             .next()
             .map(|node| node.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
-        let group = document
-            .select(&group_selector)
-            .find_map(|node| {
-                node.value()
-                    .attr(&config.group_attribute)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
+        let group = group_selector
+            .as_ref()
+            .and_then(|selector| {
+                document
+                    .select(selector)
+                    .find_map(|node| {
+                        node.value()
+                            .attr(&config.group_attribute)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                    })
+                    .map(str::to_string)
             })
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default();
         (username, group)
     };
     if username.is_empty() {
@@ -913,7 +917,10 @@ async fn scan_member(
         };
     }
 
-    if !config.member_keyword.is_empty() && !group.contains(&config.member_keyword) {
+    if group_selector.is_some()
+        && !config.member_keyword.is_empty()
+        && !group.contains(&config.member_keyword)
+    {
         return MemberResult {
             id,
             url: url_text,
@@ -971,10 +978,14 @@ async fn start_scan(
             Selector::parse(&username_selector_text)
                 .map_err(|error| format!("用户名 CSS Selector 无效：{error:?}"))?,
         );
-        let group_selector = Arc::new(
-            Selector::parse(&group_selector_text)
-                .map_err(|error| format!("用户组 CSS Selector 无效：{error:?}"))?,
-        );
+        let group_selector = if group_selector_text.trim().is_empty() {
+            None
+        } else {
+            Some(Arc::new(
+                Selector::parse(&group_selector_text)
+                    .map_err(|error| format!("用户组 CSS Selector 无效：{error:?}"))?,
+            ))
+        };
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs.clamp(1, 300)))
             .danger_accept_invalid_certs(!config.verify_tls)
