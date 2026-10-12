@@ -1,7 +1,18 @@
-# Tauri + React + Typescript
+# Zibll 会员安全审计工具 (trytryuser) - 前端与应用目录
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+> ⚠️ **【重要声明】本项目仅供大学生信息安全网络攻防大赛比赛期间测试学习使用，严禁用于未授权目标。**
 
-## Recommended IDE Setup
+详细的技术架构、功能说明与完整使用手册请参阅根目录说明：
+👉 [项目完整 README 文档](../README.md)
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+---
+
+## 开发与构建命令
+
+```bash
+# 启动开发环境
+npm run tauri dev
+
+# 打包构建生产版本
+npm run tauri build
+```

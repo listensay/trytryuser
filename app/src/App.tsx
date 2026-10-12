@@ -48,6 +48,7 @@ type ScanConfig = {
   timeoutSecs: number;
   retries: number;
   concurrency: number;
+  requestIntervalSecs: number;
   verifyTls: boolean;
   testWeakLogin: boolean;
   loginPath: string;
@@ -124,6 +125,7 @@ const initialConfig: ScanConfig = {
   timeoutSecs: 10,
   retries: 2,
   concurrency: 8,
+  requestIntervalSecs: 0,
   verifyTls: false,
   testWeakLogin: true,
   loginPath: "/wp-admin/admin-ajax.php",
@@ -308,7 +310,11 @@ function AuditApp() {
 
   function openSite(site: SiteRecord) {
     setSelectedSite(site);
-    setConfig(site.config);
+    setConfig({
+      ...initialConfig,
+      ...site.config,
+      requestIntervalSecs: site.config.requestIntervalSecs ?? 0,
+    });
     setDirty(false);
     setError("");
     setResults([]);
@@ -855,7 +861,7 @@ function AuditApp() {
                   children: (
                     <div className="advanced-content">
                       <Row gutter={8}>
-                        <Col span={8}>
+                        <Col span={12}>
                           <Form.Item label="并发数">
                             <InputNumber
                               min={1}
@@ -868,7 +874,27 @@ function AuditApp() {
                             />
                           </Form.Item>
                         </Col>
-                        <Col span={8}>
+                        <Col span={12}>
+                          <Form.Item
+                            label="请求间隔（秒）"
+                            tooltip="每个请求之间的间隔时间，以秒为单位，0 表示无间隔"
+                          >
+                            <InputNumber
+                              min={0}
+                              max={3600}
+                              step={0.5}
+                              value={config.requestIntervalSecs}
+                              placeholder="0 为无间隔"
+                              onChange={(value) =>
+                                update(
+                                  "requestIntervalSecs",
+                                  numberValue(value, 0)
+                                )
+                              }
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
                           <Form.Item label="超时（秒）">
                             <InputNumber
                               min={1}
@@ -881,7 +907,7 @@ function AuditApp() {
                             />
                           </Form.Item>
                         </Col>
-                        <Col span={8}>
+                        <Col span={12}>
                           <Form.Item label="重试次数">
                             <InputNumber
                               min={0}
