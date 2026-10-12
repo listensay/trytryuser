@@ -466,6 +466,22 @@ function AuditApp() {
     }
   }
 
+  function showStatusDetail(value: string) {
+    modal.info({
+      title: "状态及响应详情",
+      width: 720,
+      okText: "关闭",
+      content: (
+        <Input.TextArea
+          value={value || "（无状态信息）"}
+          readOnly
+          rows={14}
+          style={{ marginTop: 12, fontFamily: '"SFMono-Regular", Consolas, monospace' }}
+        />
+      ),
+    });
+  }
+
   const resultColumns: TableColumnsType<MemberResult> = [
     {
       title: "ID",
@@ -500,7 +516,21 @@ function AuditApp() {
         return <Tag color={color}>{loginText[value]}</Tag>;
       },
     },
-    { title: "状态说明", dataIndex: "message", ellipsis: true },
+    {
+      title: "状态说明",
+      dataIndex: "message",
+      width: 300,
+      render: (value: string) => (
+        <Flex align="center" gap={8}>
+          <Text ellipsis style={{ flex: 1, minWidth: 0 }} title={value}>
+            {value?.split("\n")[0] || "—"}
+          </Text>
+          <Button type="link" size="small" onClick={() => showStatusDetail(value)}>
+            详情
+          </Button>
+        </Flex>
+      ),
+    },
   ];
 
   const numberValue = (value: number | null, fallback: number) =>

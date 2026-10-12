@@ -809,25 +809,63 @@ async fn test_login(
     }
 
     match client.post(login_url).form(&form).send().await {
-        Ok(response) => match response.json::<Value>().await {
-            Ok(value) => {
-                let actual = value
-                    .get(&config.failure_json_field)
-                    .map(|item| match item {
-                        Value::String(text) => text.clone(),
-                        other => other.to_string(),
-                    });
-                if actual.as_deref() == Some(config.failure_json_value.as_str()) {
-                    ("failed".into(), "用户名作为密码时登录失败".into())
-                } else {
-                    (
-                        "vulnerable".into(),
-                        "用户名作为密码时接口返回登录成功".into(),
+        Ok(response) => {
+            let status = response.status();
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("未知")
+                .to_string();
+            let response_url = response.url().to_string();
+            let body = match response.text().await {
+                Ok(body) => body,
+                Err(error) => {
+                    return (
+                        "error".into(),
+                        format!(
+                            "登录响应读取失败：{error}\nHTTP 状态：{}\n响应地址：{response_url}\nContent-Type：{content_type}",
+                            status.as_u16()
+                        ),
                     )
                 }
+            };
+            let preview = body.chars().take(1500).collect::<String>();
+            let response_detail = format!(
+                "HTTP 状态：{}\n响应地址：{response_url}\nContent-Type：{content_type}\n响应内容：\n{}",
+                status.as_u16(),
+                if preview.trim().is_empty() {
+                    "（空响应）"
+                } else {
+                    preview.trim()
+                }
+            );
+            match serde_json::from_str::<Value>(&body) {
+                Ok(value) => {
+                    let actual = value
+                        .get(&config.failure_json_field)
+                        .map(|item| match item {
+                            Value::String(text) => text.clone(),
+                            other => other.to_string(),
+                        });
+                    if actual.as_deref() == Some(config.failure_json_value.as_str()) {
+                        (
+                            "failed".into(),
+                            format!("用户名作为密码时登录失败\n{response_detail}"),
+                        )
+                    } else {
+                        (
+                            "vulnerable".into(),
+                            format!("用户名作为密码时接口返回登录成功\n{response_detail}"),
+                        )
+                    }
+                }
+                Err(error) => (
+                    "error".into(),
+                    format!("登录响应不是有效 JSON：{error}\n{response_detail}"),
+                ),
             }
-            Err(error) => ("error".into(), format!("登录响应不是有效 JSON：{error}")),
-        },
+        }
         Err(error) => ("error".into(), format!("登录请求失败：{error}")),
     }
 }
@@ -981,10 +1019,9 @@ async fn start_scan(
         let group_selector = if group_selector_text.trim().is_empty() {
             None
         } else {
-            Some(Arc::new(
-                Selector::parse(&group_selector_text)
-                    .map_err(|error| format!("用户组 CSS Selector 无效：{error:?}"))?,
-            ))
+            Some(Arc::new(Selector::parse(&group_selector_text).map_err(
+                |error| format!("用户组 CSS Selector 无效：{error:?}"),
+            )?))
         };
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs.clamp(1, 300)))
