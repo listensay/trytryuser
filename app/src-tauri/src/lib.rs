@@ -824,8 +824,15 @@ async fn test_login(base: &Url, config: &ScanConfig, username: &str) -> (String,
         Err(error) => return ("error".into(), error),
     };
     let signin_referrer = signin_page.to_string();
-    if let Err(error) = client.get(signin_page).send().await {
-        return ("error".into(), format!("登录页会话初始化失败：{error}"));
+    let signin_res = match client.get(signin_page).send().await {
+        Ok(res) => res,
+        Err(error) => return ("error".into(), format!("登录页会话初始化失败：{error}")),
+    };
+    if signin_res.status().as_u16() == 429 {
+        return (
+            "error".into(),
+            "登录页会话初始化被限流：HTTP 429（请求过于频繁，建议增大请求间隔）".into(),
+        );
     }
     let login_url = match endpoint_url(base, &config.login_path) {
         Ok(url) => url,
@@ -862,12 +869,19 @@ async fn test_login(base: &Url, config: &ScanConfig, username: &str) -> (String,
             Ok(response) => response,
             Err(error) => return ("error".into(), format!("验证码挑战请求失败：{error}")),
         };
-        if !captcha_response.status().is_success() {
+        let captcha_status = captcha_response.status();
+        if captcha_status.as_u16() == 429 {
+            return (
+                "error".into(),
+                "验证码挑战被限流：HTTP 429（请求过于频繁，建议增大请求间隔）".into(),
+            );
+        }
+        if !captcha_status.is_success() {
             return (
                 "error".into(),
                 format!(
                     "验证码挑战请求失败：HTTP {}",
-                    captcha_response.status().as_u16()
+                    captcha_status.as_u16()
                 ),
             );
         }
@@ -932,50 +946,128 @@ async fn test_login(base: &Url, config: &ScanConfig, username: &str) -> (String,
                     )
                 }
             };
-            let preview = body.chars().take(1500).collect::<String>();
+
+            // 反序列化 JSON 并格式化为 UTF-8 中文字符，避免 Unicode 转义 (\uXXXX) 影响阅读
+            let (parsed_json, display_body) = match serde_json::from_str::<Value>(&body) {
+                Ok(val) => {
+                    let formatted = serde_json::to_string_pretty(&val).unwrap_or_else(|_| body.clone());
+                    (Some(val), formatted)
+                }
+                Err(_) => {
+                    let preview = body.chars().take(1500).collect::<String>();
+                    (
+                        None,
+                        if preview.trim().is_empty() {
+                            "（空响应）".to_string()
+                        } else {
+                            preview.trim().to_string()
+                        },
+                    )
+                }
+            };
+
             let response_detail = format!(
-                "HTTP 状态：{}\n响应地址：{response_url}\nContent-Type：{content_type}\n响应内容：\n{}",
-                status.as_u16(),
-                if preview.trim().is_empty() {
-                    "（空响应）"
-                } else {
-                    preview.trim()
-                }
+                "HTTP 状态：{}\n响应地址：{response_url}\nContent-Type：{content_type}\n响应内容：\n{display_body}",
+                status.as_u16()
             );
-            match serde_json::from_str::<Value>(&body) {
-                Ok(value) => {
-                    let message_text = value.get("msg").and_then(Value::as_str).unwrap_or_default();
-                    if message_text.contains("人机验证")
-                        || message_text.contains("验证码")
-                        || body.contains("人机验证")
-                    {
-                        return (
-                            "error".into(),
-                            format!("验证码校验失败：{message_text}\n{response_detail}"),
-                        );
-                    }
-                    let actual = value
-                        .get(&config.failure_json_field)
-                        .map(|item| match item {
-                            Value::String(text) => text.clone(),
-                            other => other.to_string(),
-                        });
-                    if actual.as_deref() == Some(config.failure_json_value.as_str()) {
-                        (
-                            "failed".into(),
-                            format!("用户名作为密码时登录失败\n{response_detail}"),
-                        )
-                    } else {
-                        (
-                            "vulnerable".into(),
-                            format!("用户名作为密码时接口返回登录成功\n{response_detail}"),
-                        )
-                    }
-                }
-                Err(error) => (
+
+            // 1. 优先检测 HTTP 429 频次限制
+            if status.as_u16() == 429 {
+                let msg = parsed_json
+                    .as_ref()
+                    .and_then(|v| v.get("msg").and_then(Value::as_str))
+                    .unwrap_or("操作过于频繁，请稍后再试");
+                return (
                     "error".into(),
-                    format!("登录响应不是有效 JSON：{error}\n{response_detail}"),
-                ),
+                    format!("接口限流拦截（HTTP 429）：{msg}\n{response_detail}"),
+                );
+            }
+
+            // 2. 检测其他非 2xx HTTP 状态码（如 403 / 500 / 502 / 503 等）
+            if !status.is_success() {
+                let msg = parsed_json
+                    .as_ref()
+                    .and_then(|v| v.get("msg").and_then(Value::as_str));
+                let summary = match msg {
+                    Some(m) if !m.is_empty() => {
+                        format!("接口请求异常（HTTP {}）：{m}", status.as_u16())
+                    }
+                    _ => format!("接口请求异常：HTTP {}", status.as_u16()),
+                };
+                return ("error".into(), format!("{summary}\n{response_detail}"));
+            }
+
+            // 3. 检查是否为有效 JSON 响应
+            let value = match parsed_json {
+                Some(v) => v,
+                None => {
+                    return (
+                        "error".into(),
+                        format!("登录响应不是有效 JSON\n{response_detail}"),
+                    );
+                }
+            };
+
+            let message_text = value.get("msg").and_then(Value::as_str).unwrap_or_default();
+
+            // 4. 检查是否为人机验证 / 验证码挑战失败
+            if message_text.contains("人机验证")
+                || message_text.contains("验证码")
+                || body.contains("人机验证")
+            {
+                let err_msg = if message_text.is_empty() {
+                    "人机验证未通过"
+                } else {
+                    message_text
+                };
+                return (
+                    "error".into(),
+                    format!("验证码校验失败：{err_msg}\n{response_detail}"),
+                );
+            }
+
+            // 5. 检查是否包含频次限制 / 拦截关键字（即使服务端返回 HTTP 200）
+            if message_text.contains("频繁")
+                || message_text.contains("稍后再试")
+                || message_text.contains("请求过多")
+                || message_text.contains("限流")
+                || message_text.contains("访问受限")
+                || (message_text.contains("限制") && message_text.contains("操作"))
+            {
+                return (
+                    "error".into(),
+                    format!("接口限流拦截：{message_text}\n{response_detail}"),
+                );
+            }
+
+            // 6. 正常登录业务结果判定
+            let actual = value
+                .get(&config.failure_json_field)
+                .map(|item| match item {
+                    Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                });
+
+            if actual.as_deref() == Some(config.failure_json_value.as_str()) {
+                let fail_summary = if !message_text.is_empty() {
+                    format!("弱口令登录失败：{message_text}")
+                } else {
+                    "弱口令登录失败（用户名作为密码未通过）".to_string()
+                };
+                (
+                    "failed".into(),
+                    format!("{fail_summary}\n{response_detail}"),
+                )
+            } else {
+                let success_summary = if !message_text.is_empty() {
+                    format!("弱口令登录成功：{message_text}")
+                } else {
+                    "弱口令登录成功（用户名作为密码验证通过）".to_string()
+                };
+                (
+                    "vulnerable".into(),
+                    format!("{success_summary}\n{response_detail}"),
+                )
             }
         }
         Err(error) => ("error".into(), format!("登录请求失败：{error}")),
@@ -1109,14 +1201,21 @@ async fn scan_member(
     };
     if !(200..400).contains(&status_code) {
         throttler.record_finish().await;
+        let (status, msg) = match status_code {
+            404 => ("notFound".into(), "用户不存在（HTTP 404）".to_string()),
+            429 => ("error".into(), "请求过于频繁被限流（HTTP 429）".to_string()),
+            403 => ("error".into(), "访问被拦截（HTTP 403）".to_string()),
+            code if code >= 500 => ("error".into(), format!("服务端异常（HTTP {code}）")),
+            code => ("notFound".into(), format!("页面未正常响应（HTTP {code}）")),
+        };
         return MemberResult {
             id,
             url: url_text,
-            status: "notFound".into(),
+            status,
             username: String::new(),
             group: String::new(),
             login_status: None,
-            message: format!("HTTP {status_code}"),
+            message: msg,
         };
     }
 
@@ -1146,14 +1245,25 @@ async fn scan_member(
     };
     if username.is_empty() {
         throttler.record_finish().await;
+        let is_waf_or_block = body.contains("操作过于频繁")
+            || body.contains("访问受限")
+            || body.contains("429 Too Many Requests")
+            || body.contains("Cloudflare")
+            || body.contains("安全验证")
+            || body.contains("人机验证");
+        let (status, msg) = if is_waf_or_block {
+            ("error".into(), "页面被安全防护或频控拦截（未找到用户名元素）".to_string())
+        } else {
+            ("notFound".into(), "未找到用户名元素".to_string())
+        };
         return MemberResult {
             id,
             url: url_text,
-            status: "notFound".into(),
+            status,
             username,
             group: String::new(),
             login_status: None,
-            message: "未找到用户名元素".into(),
+            message: msg,
         };
     }
 
